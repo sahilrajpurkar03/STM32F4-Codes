@@ -1,0 +1,88 @@
+#include <stm32f4xx.h>
+
+void port_init(void);
+void timer_init(void);
+void pwm_init(void);
+void _delay_ms(uint32_t time);
+
+int main(void) {
+
+  port_init();
+  timer_init(); 
+  pwm_init();
+
+  while(1)
+  {
+    //SET CAPTURE COMPARE REGISTER VALUE
+    TIM4->CCR1 =0;
+    GPIOD->ODR|=(1<<13);
+    GPIOD->ODR&=~(1<<14);
+    _delay_ms(2000);
+    GPIOD->ODR|=(1<<14);
+    GPIOD->ODR&=~(1<<13);
+    _delay_ms(2000);
+  }
+}
+
+void port_init() {
+  RCC->APB2ENR |= (1 << 14);   //enable configure
+  RCC->AHB1ENR |= (1 << 3);    //enable gpiod
+
+  GPIOD->MODER |= (1 << 25)|(1<<26)|(1<<28);   //PD12 set as AF
+  GPIOD->OSPEEDR|=0xFC000000;		//IO speed= high speed
+  GPIOD->OTYPER&=~(1<<13)&(1<<14)&(1<<15);		//Push-pull reset state
+  GPIOD->PUPDR|=(1<<25);
+  GPIOD->AFR[1] |= (1 << 17);
+
+}
+
+void timer_init() {
+  RCC->APB1ENR |= (1 << 2); //ENABLE TIMER 4
+
+  //SELECT COUNTER MODE
+  TIM4->CR1 &= ~(1 << 4); //COUNTER USED AS UPCONUNTER
+
+  //SET CLOCK DIVISION
+  TIM4->CR1 &= ~(1 << 8) & (1 << 9); //CLOCK DIVISION = tDTS = tCK_INT
+
+  //SET AUTO RELOAD VALUE
+  TIM4->ARR =1000; //PERIOD=0
+
+  //SET PRESCALAR VALUE
+  TIM4->PSC = 0; //PRESCALAR = 40000
+
+  //SET REPETITION COUNTER VALUE
+  TIM4->RCR = 0; //REPETITION COUNTER VALUE = 0
+
+  TIM4->EGR |= (1 << 0); //
+
+  TIM4->CR1 &= ~(1 << 6) & (1 << 5); //EDGE-ALIGNED MODE
+
+  TIM4->CR1 |= (1 << 0); //COUNTER ENABLE
+}
+
+void pwm_init() {
+  //SELECT THE OUTPUT COMPARE MODE
+  TIM4->CCMR1|= (1 << 6) | (1 << 5); //PWM MODE 1
+
+  //SET OUTPUT COMPARE POLARITY
+  TIM4->CCER &= ~(1 << 1);            //OC POLARITY HIGH
+
+  //SET OUTPUT STATE
+  TIM4->CCER |= (1 << 0);             //OUTPUT ENABLE 
+
+  //SET CAPTURE COMPARE REGISTER VALUE
+  TIM4->CCR1 =400;
+
+  //ENABLE OUTPUT COMPARE PRELOAD FEATURE 
+  TIM4->CR1 |= (1 << 7);              //Auto-reload preload enable
+  TIM4->CCMR1 |= (1 << 3);            //Preload register enabled
+
+  TIM4->BDTR|=(1<<15);                //MOE=1;
+
+}
+
+void _delay_ms(uint32_t time)
+{
+	for(uint32_t i=0;i<time*2000;i++);
+}

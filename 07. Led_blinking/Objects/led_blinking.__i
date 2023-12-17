@@ -1,0 +1,6 @@
+--c99 --gnu -c --cpu Cortex-M4.fp.sp -D__EVAL -g -O0 --apcs=interwork --split_sections
+-I.\RTE\_Target_1
+-IC:\Users\Sahil\AppData\Local\Arm\Packs\ARM\CMSIS\5.7.0\CMSIS\Core\Include
+-IC:\Users\Sahil\AppData\Local\Arm\Packs\Keil\STM32F4xx_DFP\2.15.0\Drivers\CMSIS\Device\ST\STM32F4xx\Include
+-D__UVISION_VERSION="533" -D_RTE_ -DSTM32F407xx -D_RTE_
+-o .\objects\led_blinking.o --omf_browse .\objects\led_blinking.crf --depend .\objects\led_blinking.d "led_blinking.c"
