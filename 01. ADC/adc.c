@@ -1,55 +1,64 @@
 #include <stm32f4xx.h>
 
+// Function prototypes
 void adc_init(void);
 void port_init(void);
 uint16_t adc_read(void);
 
-uint16_t adc_value=0;
-int test=0;
+// Global variables
+uint16_t adc_value = 0;
+int test = 0;
 
-int main (void)
+int main(void)
 {
-		port_init();
-		adc_init();
-		while(1)
-		{
-			adc_value=adc_read();	
-			test++;	
-		}
+    port_init();    // Initialize GPIOA (PA0) as analog input
+    adc_init();     // Initialize ADC1
+
+    while (1)
+    {
+        adc_value = adc_read();  // Read ADC value from channel 0
+        test++;                  // Dummy increment to check loop
+    }
 }
 
+// Initialize GPIOA Pin 0 (PA0) as analog input
 void port_init(void)
 {
-	RCC->APB2ENR|=(1<<14);				//ENABLE CONFIGURE
-	RCC->AHB1ENR|=(1<<0);						//ENABLE GPIOA
-	GPIOA->MODER|=(1<<0)|(1<<1);		//PA0 SET ANALOG MODE
-	GPIOA->PUPDR =0X00000000;				//NO PULL UP, NO PULL DOWN
+    RCC->AHB1ENR |= (1 << 0);        // Enable clock for GPIOA
+    GPIOA->MODER |= (3 << 0);        // Set PA0 to analog mode (MODER0 = 1, MODER1 = 1)
+    GPIOA->PUPDR &= ~(3 << 0);       // No pull-up, no pull-down on PA0
 }
 
+// Initialize ADC1 on channel 0
 void adc_init(void)
 {
-	RCC->APB2ENR|=(1<<8);			  	//ENABLE ADC CLOCK used for register read/write access
-	RCC->CR|=(1<<0);							//INTERNAL HIGH SPEED CLOCK ENABLE
-	ADC1->CR2|=(1<<0)|(1<<10);		//ENABLE ADC AND EOC IS ENABLE 
-	ADC1->CR2|=(1<<1);						//CONTINUOUS CONVERSION MODE IS SELECTED
-	ADC->CCR |=(1<<17)|(1<<16);		//PRESCALAR IS FSC/8
-	ADC->CCR &=~(1<<0)|(1<<1)|(1<<2)|(1<<3)|(1<<4); 		//SET INDEPENDENT MODE 
-	ADC1->CR1&=~(1<<25); 					//
-	ADC1->CR1|=(1<<24);					//SET ADC 8 BIT
-	ADC1->CR1|=(1<<5);						//ENABLE EOC
-	ADC1->SQR1&=~(1<<20)|(1<<21)|(1<<22)|(1<<23);	//CONVERSION 1
-	ADC1->SQR1&=~(1<<0)|(1<<1)|(1<<2)|(1<<3)|(1<<4);	//	
-	ADC1->SMPR2&=~(1<<0)|(1<<1)|(1<<2);				//CHANEL 0 SAMPLING TIME 3 CYCLES
+    RCC->APB2ENR |= (1 << 8);        // Enable ADC1 clock
+    RCC->CR |= (1 << 0);             // Enable HSI (High Speed Internal) clock
+
+    ADC->CCR |= (3 << 16);           // Set ADC prescaler to PCLK2 / 8
+    ADC->CCR &= ~(0x1F);             // Independent mode, other bits cleared
+
+    ADC1->CR1 &= ~(1 << 25);         // Disable resolution bits
+    ADC1->CR1 |= (1 << 24);          // Set 8-bit resolution
+    ADC1->CR1 |= (1 << 5);           // Enable EOC interrupt (not used here, but enables EOC flag)
+
+    ADC1->CR2 |= (1 << 0);           // Enable ADC
+    ADC1->CR2 |= (1 << 1);           // Enable continuous conversion
+    ADC1->CR2 |= (1 << 10);          // Enable EOC flag
+
+    ADC1->SQR1 &= ~(0xF << 20);      // Set number of conversions to 1
+    ADC1->SQR3 &= ~(0x1F);           // Select channel 0 for conversion
+
+    ADC1->SMPR2 &= ~(7 << 0);        // Set channel 0 sample time to 3 cycles
 }
 
+// Read ADC1 value from channel 0
 uint16_t adc_read(void)
 {
-	ADC1->CR1&=~(1<<30);															//RESET STATE
-	ADC1->CR1&=~(1<<0)|(1<<1)|(1<<2)|(1<<3)|(1<<4);		//SELECT CHANNEL 0
-	ADC1->CR2|=(1<<30);																//START OF CONVERSION
-	while(!(ADC1->SR & (1<<1)));											//WAIT FOR END OF CONVERSION OF ADC1 FLAG
-	ADC1->SR&=~(1<<1);
-	adc_value=ADC1->DR;
-	return adc_value;
-} 
+    ADC1->CR2 |= (1 << 30);          // Start conversion
+    while (!(ADC1->SR & (1 << 1)));  // Wait until EOC (End of Conversion)
+    ADC1->SR &= ~(1 << 1);           // Clear EOC flag
 
+    adc_value = ADC1->DR;            // Read ADC value
+    return adc_value;
+}

@@ -1,126 +1,142 @@
 #include <stm32f4xx.h>
 
+// --- Function Prototypes ---
+void port_init(void);
+void timer_init(void);
+void pwm_init(void);
+void motor1(int sp_vect);
+void motor2(int sp_vect);
+int limit_var(int value, int min, int max);
+void _delay_ms(uint32_t time);
+
+// --- Constants ---
+#define js_error 15  // Deadband around 0
+
+// --- Global Variables ---
 #define motor_dir_1 GPIOD->ODR
 #define motor_dir_2 GPIOC->ODR
 #define motor_pwm1 TIM4->CCR1
 #define motor_pwm2 TIM4->CCR2
 
-void motor1();
-void motor2();
-void port_init();
-void timer_init();
-void pwm_init();
-void _delay_ms(uint32_t time);
-long limit_var(long in_var, long l_limit, long h_limit);
-
-int js_error = 20;
-
+// --- Main Function ---
 int main(void) {
-  port_init();
-  timer_init();
-  pwm_init();
-  while (1) {
-    motor1(50);
-    motor2(50);
-    _delay_ms(5000);
-    motor1(-200);
-    motor2(-200);
-    _delay_ms(5000);
-  }
+    port_init();
+    timer_init(); 
+    pwm_init();
+
+    while (1) {
+        motor1(200);    // Forward
+        motor2(-150);   // Reverse
+        _delay_ms(2000);
+
+        motor1(0);      // Stop
+        motor2(0);      // Stop
+        _delay_ms(2000);
+    }
 }
 
-void port_init() {
-  RCC->APB2ENR |= (1 << 14);           //enable configure
-  RCC->AHB1ENR |= (1 << 3) | (1 << 2); //enable gpiod and gpioc
+// --- GPIO Port Initialization ---
+void port_init(void) {
+    RCC->AHB1ENR |= (1 << 3) | (1 << 2);   // Enable GPIOD and GPIOC
 
-  GPIOD->MODER |= (1 << 25) | (1 << 27); //PD12 and PD13 set as AF
-  GPIOD->PUPDR |= (1 << 25) | (1 << 27);
-  GPIOD->AFR[1] |= (1 << 17) | (1 << 21);
+    // PD12, PD13 as AF (PWM)
+    GPIOD->MODER &= ~((3 << (12 * 2)) | (3 << (13 * 2)));
+    GPIOD->MODER |=  ((2 << (12 * 2)) | (2 << (13 * 2)));
 
-  GPIOD->MODER |= (1 << 18) | (1 << 20);  //PD9 and PD10 set as output
-  GPIOD->OSPEEDR |= 0x003C0000;           //IO speed= high speed
-  GPIOD->OTYPER &= ~(1 << 9) & (1 << 10); //Push-pull reset state
+    // PD12, PD13 AF2 (TIM4)
+    GPIOD->AFR[1] &= ~((0xF << 16) | (0xF << 20));   // Clear
+    GPIOD->AFR[1] |=  ((0x2 << 16) | (0x2 << 20));   // AF2
 
-  GPIOC->MODER |= (1 << 2) | (1 << 6);   //PC1 and PC3 set as output
-  GPIOD->OSPEEDR |= 0x000000CC;          //IO speed= high speed
-  GPIOD->OTYPER &= ~(1 << 1) & (1 << 3); //Push-pull reset state
+    // PD12, PD13 Speed & Type
+    GPIOD->OSPEEDR |= (3 << (12 * 2)) | (3 << (13 * 2));  // High speed
+    GPIOD->OTYPER &= ~((1 << 12) | (1 << 13));            // Push-pull
+
+    // PC1, PC3 as output (Motor Direction)
+    GPIOC->MODER &= ~((3 << (1 * 2)) | (3 << (3 * 2)));    // Clear
+    GPIOC->MODER |=  ((1 << (1 * 2)) | (1 << (3 * 2)));    // Output mode
+    GPIOC->OSPEEDR |= (3 << (1 * 2)) | (3 << (3 * 2));     // High speed
+    GPIOC->OTYPER &= ~((1 << 1) | (1 << 3));               // Push-pull
 }
 
-void pwm_init() {
-  //SELECT THE OUTPUT COMPARE MODE
-  TIM4->CCMR1 |= (1 << 6) | (1 << 5) | (1 << 14) | (1 << 13); //PWM MODE 1
+// --- Timer Initialization (TIM4) ---
+void timer_init(void) {
+    RCC->APB1ENR |= (1 << 2);  // Enable TIM4
 
-  //SET OUTPUT STATE
-  TIM4->CCER |= (1 << 0) | (1 << 4); //OUTPUT ENABLE
+    TIM4->PSC = 15;           // Prescaler (adjust as needed)
+    TIM4->ARR = 1000;         // Auto-reload value for 1 kHz (with 16 MHz clk)
 
-  //ENABLE OUTPUT COMPARE PRELOAD FEATURE
-  TIM4->CR1 |= (1 << 7);               //Auto-reload preload enable
-  TIM4->CCMR1 |= (1 << 3) | (1 << 11); //Preload register enabled
-
-  TIM4->BDTR |= (1 << 15); //MOE=1;
+    TIM4->CR1 |= (1 << 7);    // Enable auto-reload preload
+    TIM4->EGR |= (1 << 0);    // Generate update event
+    TIM4->CR1 |= (1 << 0);    // Enable counter
 }
 
-void timer_init() {
-  RCC->APB1ENR |= (1 << 2); //ENABLE TIMER 4
+// --- PWM Initialization (TIM4 CH1, CH2) ---
+void pwm_init(void) {
+    // CH1 (PD12) - PWM1
+    TIM4->CCMR1 &= ~(0x7 << 4);
+    TIM4->CCMR1 |=  (0x6 << 4);      // PWM mode 1
+    TIM4->CCMR1 |=  (1 << 3);        // Preload enable
 
-  //SET AUTO RELOAD VALUE
-  TIM4->ARR = 255;
+    TIM4->CCER &= ~(1 << 1);         // Polarity high
+    TIM4->CCER |=  (1 << 0);         // Enable CH1 output
 
-  //SET PRESCALAR VALUE
-  TIM4->PSC = 0; //PRESCALAR = 0
+    // CH2 (PD13) - PWM2
+    TIM4->CCMR1 &= ~(0x7 << 12);
+    TIM4->CCMR1 |=  (0x6 << 12);     // PWM mode 1
+    TIM4->CCMR1 |=  (1 << 11);       // Preload enable
 
-  //SET REPETITION COUNTER VALUE
-  TIM4->RCR = 0; //REPETITION COUNTER VALUE = 0
+    TIM4->CCER &= ~(1 << 5);         // Polarity high
+    TIM4->CCER |=  (1 << 4);         // Enable CH2 output
 
-  TIM4->EGR |= (1 << 0); //
-
-  TIM4->CR1 |= (1 << 0); //COUNTER ENABLE
+    TIM4->BDTR |= (1 << 15);         // Main output enable (MOE)
 }
 
+// --- Motor 1 Control ---
 void motor1(int sp_vect) {
-  sp_vect = limit_var(sp_vect, -255, 255);
-  if (sp_vect < (-js_error)) {
-    motor_dir_1 |= (1 << 9);
-    motor_dir_1 &= ~(1 << 10);
-    sp_vect = (-sp_vect);
-  } else if (sp_vect > js_error) {
-    motor_dir_1 &= ~(1 << 9);
-    motor_dir_1 |= (1 << 10);
-  } else {
-    motor_dir_1 |= (1 << 10);
-    motor_dir_1 |= (1 << 9);
-    sp_vect = 0;
-  }
-  motor_pwm1 = sp_vect;
+    sp_vect = limit_var(sp_vect, -255, 255);
+
+    if (sp_vect < -js_error) {
+        motor_dir_1 |=  (1 << 14);     // DIR1 = High
+        motor_dir_1 &= ~(1 << 15);     // DIR2 = Low
+        sp_vect = -sp_vect;
+    } else if (sp_vect > js_error) {
+        motor_dir_1 &= ~(1 << 14);     // DIR1 = Low
+        motor_dir_1 |=  (1 << 15);     // DIR2 = High
+    } else {
+        motor_dir_1 |=  (1 << 14) | (1 << 15);  // Both High = Stop
+        sp_vect = 0;
+    }
+
+    motor_pwm1 = sp_vect;
 }
 
+// --- Motor 2 Control ---
 void motor2(int sp_vect) {
-  sp_vect = limit_var(sp_vect, -255, 255);
-  if (sp_vect < (-js_error)) {
-    motor_dir_2 |= (1 << 1);
-    motor_dir_2 &= (1 << 3);
-    sp_vect = (-sp_vect);
-  } else if (sp_vect > js_error) {
-    motor_dir_2 &= (1 << 1);
-    motor_dir_2 |= (1 >> 3);
-  } else {
-    motor_dir_2 |= (1 << 1);
-    motor_dir_2 |= (1 >> 3);
-    sp_vect = 0;
-  }
-  motor_pwm2 = sp_vect;
+    sp_vect = limit_var(sp_vect, -255, 255);
+
+    if (sp_vect < -js_error) {
+        motor_dir_2 |=  (1 << 1);      // DIR1 = High
+        motor_dir_2 &= ~(1 << 3);      // DIR2 = Low
+        sp_vect = -sp_vect;
+    } else if (sp_vect > js_error) {
+        motor_dir_2 &= ~(1 << 1);      // DIR1 = Low
+        motor_dir_2 |=  (1 << 3);      // DIR2 = High
+    } else {
+        motor_dir_2 |=  (1 << 1) | (1 << 3);    // Both High = Stop
+        sp_vect = 0;
+    }
+
+    motor_pwm2 = sp_vect;
 }
 
-long limit_var(long in_var, long l_limit, long h_limit) {
-  if (in_var > h_limit) {
-    in_var = h_limit;
-  } else if (in_var < l_limit) {
-    in_var = l_limit;
-  }
-  return in_var;
+// --- Limit Function ---
+int limit_var(int value, int min, int max) {
+    if (value < min) return min;
+    if (value > max) return max;
+    return value;
 }
 
+// --- Crude Delay Function ---
 void _delay_ms(uint32_t time) {
-  for (uint32_t i = 0; i < time * 2000; i++)
-    ;
+    for (uint32_t i = 0; i < time * 2000; i++);
 }
